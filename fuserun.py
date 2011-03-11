@@ -15,7 +15,7 @@ class RunFS(llfuse.Operations):
         super(RunFS, self).__init__()
         self.inodes = {}
         self.parents = {}
-        self.fhs = {}
+        self.outputs = {}
         self.next_inode = 2
         self.next_fh = 0
 
@@ -27,6 +27,27 @@ class RunFS(llfuse.Operations):
         self.parents[inode] = inode_p
         return self.getattr(inode)
 
+    def get_cmd(self, inode):
+        cmd = self.inodes[inode]
+        assert cmd.endswith("$")
+        cmd = cmd[:-1]
+
+        while self.parents[inode] != 1:
+            inode = self.parents[inode]
+            cmd = self.inodes[inode] + "/" + cmd
+        return cmd
+
+    def run_cmd(self, cmd):
+        p = subprocess.Popen(cmd, shell=True, stdin=open("/dev/null"), stdout=subprocess.PIPE, close_fds=True)
+        out, err = p.communicate()
+        return out
+
+    def get_output(self, inode):
+        if not inode in self.outputs:
+            s = self.run_cmd(self.get_cmd(inode))
+            self.outputs[inode] = s
+        return self.outputs[inode]
+
     def getattr(self, inode):
         print "getattr(%s)" % inode
         entry = llfuse.EntryAttributes()
@@ -36,14 +57,16 @@ class RunFS(llfuse.Operations):
         entry.attr_timeout= 300
         if inode == 1 or not self.inodes[inode].endswith("$"):
             entry.st_mode = stat.S_IFDIR
+            entry.st_size = 0
         else:
             entry.st_mode = stat.S_IFREG
+            output = self.get_output(inode)
+            entry.st_size = len(output)
         entry.st_nlink = 1
 
         entry.st_uid = 0
         entry.st_gid = 0
         entry.st_rdev = 0
-        entry.st_size = 1024**2
 
         entry.st_blksize = 512
         entry.st_blocks = 1
@@ -64,25 +87,12 @@ class RunFS(llfuse.Operations):
         return []
 
     def open(self, inode, flags):
-        print "open(%s, %s)" % (inode, flags)
-        cmd = self.inodes[inode]
-        fh = self.next_fh
-        self.next_fh += 1
-
-        assert cmd.endswith("$")
-        cmd = cmd[:-1]
-        while self.parents[inode] != 1:
-            inode = self.parents[inode]
-            cmd = self.inodes[inode] + "/" + cmd
-            print inode, cmd
-        p = subprocess.Popen(cmd, shell=True, stdin=open("/dev/null"), stdout=subprocess.PIPE, close_fds=True)
-        out, err = p.communicate()
-        self.fhs[fh] = out
-        return fh
+        return inode
 
     def read(self, fh, offset, length):
         print "read(%s, %s, %s)" % (fh, offset, length)
-        s = self.fhs[fh]
+        inode = fh
+        s = self.get_output(inode)
         if offset >= len(s):
             print 'eof'
             raise EOFError()
