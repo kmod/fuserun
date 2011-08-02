@@ -2,6 +2,7 @@
 
 import llfuse
 
+import traceback
 import sys
 import time
 import stat
@@ -9,6 +10,15 @@ import os
 import errno
 import commands
 import subprocess
+
+def print_errs(f):
+    def inner(*args, **kw):
+        try:
+            return f(*args, **kw)
+        except:
+            traceback.print_exc()
+            raise
+    return inner
 
 class RunFS(llfuse.Operations):
     def __init__(self):
@@ -19,6 +29,7 @@ class RunFS(llfuse.Operations):
         self.next_inode = 2
         self.next_fh = 0
 
+    @print_errs
     def lookup(self, inode_p, name):
         print "lookup(%s, %s)" % (inode_p, name)
         inode = self.next_inode
@@ -27,6 +38,7 @@ class RunFS(llfuse.Operations):
         self.parents[inode] = inode_p
         return self.getattr(inode)
 
+    @print_errs
     def get_cmd(self, inode):
         cmd = self.inodes[inode]
         assert cmd.endswith("$")
@@ -37,17 +49,20 @@ class RunFS(llfuse.Operations):
             cmd = self.inodes[inode] + "/" + cmd
         return cmd
 
+    @print_errs
     def run_cmd(self, cmd):
         p = subprocess.Popen(cmd, shell=True, stdin=open("/dev/null"), stdout=subprocess.PIPE, close_fds=True)
         out, err = p.communicate()
         return out
 
+    @print_errs
     def get_output(self, inode):
         if not inode in self.outputs:
             s = self.run_cmd(self.get_cmd(inode))
             self.outputs[inode] = s
         return self.outputs[inode]
 
+    @print_errs
     def getattr(self, inode):
         print "getattr(%s)" % inode
         entry = llfuse.EntryAttributes()
@@ -76,22 +91,25 @@ class RunFS(llfuse.Operations):
 
         return entry
 
+    @print_errs
     def opendir(self, inode):
         print "opendir(%s)" % inode
-        return stat.ENOTDIR
+        return errno.ENOTDIR
         raise llfuse.FUSEError(errno.ENOTDIR)
         # return inode
 
+    @print_errs
     def readdir(self, inode, off):
         print "readdir(%s, %s)" % (inode, off)
         return []
 
+    @print_errs
     def open(self, inode, flags):
         return inode
 
-    def read(self, fh, offset, length):
-        print "read(%s, %s, %s)" % (fh, offset, length)
-        inode = fh
+    @print_errs
+    def read(self, inode, offset, length):
+        print "read(%s, %s, %s)" % (inode, offset, length)
         s = self.get_output(inode)
         if offset >= len(s):
             print 'eof'
@@ -99,9 +117,18 @@ class RunFS(llfuse.Operations):
         print repr(s[offset:offset+length])
         return s[offset:offset+length]
 
-    def release(self, fh):
-        print "release(%s)" % fh
-        del self.fhs[fh]
+    @print_errs
+    def release(self, inode):
+        print "release(%s)" % inode
+        # I'm not really sure how the caching works...
+        # if inode in self.inodes:
+            # del self.inodes[inode]
+            # del self.parents[inode]
+            # del self.outputs[inode]
+        # else:
+            # assert not inode in self.parents
+            # assert not inode in self.outputs
+        # print len(self.inodes), len(self.parents), len(self.outputs)
 
 if __name__ == "__main__":
     if len(sys.argv) != 2:
