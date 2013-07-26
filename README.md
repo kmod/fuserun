@@ -12,10 +12,12 @@ diff <(curl server1/) cached_copy.txt
 Unfortunately, this only works when you're working on the shell, and I've sometimes found myself wanting a solution that works for other contexts.  One particularly interesting case is using this kind of substitution to write out custom configuration files for different machines: instead of having a system that seeds each machine with its own config file, just put the same config-generator on all the machines.
 
 This is a simple fuse filesystem that interprets paths as commands, where the contents of the "file" are the stdout, and writing to the "file" writes to stderr:
-> $ python fuserun.py /mnt/fuserun &
-> $ cat '/tmp/fuserun/ls /home$'
-> kmod
-> $ fusermount -u /mnt/fuserun
+```
+$ python fuserun.py /mnt/fuserun &
+$ cat '/tmp/fuserun/ls /home$'
+kmod
+$ fusermount -u /mnt/fuserun
+```
 
 Note: due to a technical limitation, currently you must end all paths with a dollar sign to signal that it is the end of the path.
 
